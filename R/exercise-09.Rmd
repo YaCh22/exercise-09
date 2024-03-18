@@ -1,0 +1,84 @@
+---
+title: "Exercise_09"
+output: html_document
+date: "2024-03-18"
+---
+```{r}
+library("tidyverse")
+library("dplyr")
+library("mosaic")
+library("ggplot2")
+library("infer")
+library("skimr")
+library("cowplot")
+```
+Step 1
+
+```{r}
+f <- "https://raw.githubusercontent.com/difiore/ada-2024-datasets/main/Street_et_al_2017.csv"
+d <- read_csv(f)
+fivenum <- skim(d)[c(2,10:16)] %>%
+  na.omit() %>%
+  rename(
+    mean = numeric.mean,
+    sd = numeric.sd,
+    minimum = numeric.p0,
+    fqtl = numeric.p25,
+    median = numeric.p50,
+    thqtl = numeric.p75,
+    maximum = numeric.p100
+    )
+str(fivenum)
+```
+The dataframe fivenum summarizes the mean, sd and crucial five numbers for all numerical variables.
+
+
+Step 2
+```{r}
+#par(mfrow=c(2,2))
+
+p1 <- ggplot(data = d, aes(x = Group_size, y = ECV)) + geom_point()
+p2 <- ggplot(data = d, aes(x = Longevity, y = ECV)) + geom_point()
+p3 <- ggplot(data = d, aes(x = Weaning, y = ECV)) + geom_point()
+p4 <- ggplot(data = d, aes(x = Repro_lifespan, y = ECV)) + geom_point()
+
+plot_grid(p1,p2,p3,p4)
+```
+Step 3
+```{r}
+d3 <- d %>%
+  drop_na(ECV, Group_size)
+```
+
+
+```{r}
+d3 <- mutate(d3, centered_ECV = ECV - mean(ECV))
+d3 <- mutate(d3, centered_Group_size = Group_size - mean(Group_size))
+```
+
+
+
+```{r}
+ECV <- d3$ECV
+GS <- d3$Group_size
+
+
+(beta1 <- cor(ECV, GS) * (sd(ECV)/sd(GS)))
+
+```
+
+
+
+```{r}
+
+(beta0 <- mean(ECV) - beta1 * mean(GS))
+```
+
+Step 4
+```{r}
+m <- lm(ECV ~ Group_size, data = d3)
+m$coefficients
+
+```
+
+Step 5
