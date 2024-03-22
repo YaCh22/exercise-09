@@ -11,6 +11,7 @@ library("ggplot2")
 library("infer")
 library("skimr")
 library("cowplot")
+library("broom")
 ```
 Step 1
 
@@ -56,18 +57,13 @@ d3 <- mutate(d3, centered_ECV = ECV - mean(ECV))
 d3 <- mutate(d3, centered_Group_size = Group_size - mean(Group_size))
 ```
 
-
-
+In the following chunks, two coefficients are calculated and named by themselves.
 ```{r}
 ECV <- d3$ECV
 GS <- d3$Group_size
 
-
 (beta1 <- cor(ECV, GS) * (sd(ECV)/sd(GS)))
-
 ```
-
-
 
 ```{r}
 
@@ -81,4 +77,164 @@ m$coefficients
 
 ```
 
+The intercept equals the beta0 calculated by hand; the slope equals beta1 calculated by hand.
+
 Step 5
+```{r}
+lm_radiation <- function(radiation) {
+temp <- d3 %>%
+  filter(Taxonomic_group == radiation)
+ECV <- temp$ECV
+GS <- temp$Group_size
+beta1 <- cor(ECV, GS) * (sd(ECV)/sd(GS))
+beta0 <- mean(ECV) - beta1 * mean(GS)
+print(beta0)
+print(beta1)
+}
+```
+
+In the following three chunks, the outputs are the intercept and the slope for each radiation respectively.
+```{r}
+betas_ct <- lm_radiation("Catarrhini")
+```
+
+```{r}
+betas_pl <- lm_radiation("Platyrrhini")
+```
+
+
+```{r}
+betas_st <- lm_radiation("Strepsirhini")
+```
+
+Beta0s (intercepts) are highly different; those of platyrrhines and strepsirhines share relatively closer intercepts. Platyrrhines and strepsirhines share relatively similar beta1s (slopes), whereas they are different from that of catarrhines.
+
+Step 6
+```{r}
+d6 <- d3 %>%
+  mutate(ECVhat = beta0 + beta1 * Group_size) %>%
+  mutate(residuals = ECV -ECVhat)
+str(d6)
+```
+
+SE for the slope coefficient by hand:
+```{r}
+(df_regression <- 1) 
+(df_error <- nrow(d6) - df_regression - 1) 
+```
+
+```{r}
+SSE <- sum((d6$residuals)^2)
+SSE
+```
+
+```{r}
+(MSE <- SSE/df_error) 
+```
+
+```{r}
+SSX <- sum((d6$Group_size - mean(d6$Group_size))^2)
+SEbeta1 <- sqrt(MSE/SSX)
+SEbeta1
+
+```
+
+SE for the slope coefficient extracted from the model:
+```{r}
+m.summary <- tidy(m)
+tidy(m)$std.error[2]
+tidy(m)$p.value[2]
+```
+In the chunk above, the p value is extracted as well.
+
+The 95% CI by hand:
+```{r}
+alpha <- 0.05
+```
+
+```{r}
+(lower <- beta1 - qt(1 - alpha/2, df = nrow(d6) - 2) * SEbeta1)
+(upper <- beta1 + qt(1 - alpha/2, df = nrow(d6) - 2) * SEbeta1)
+```
+
+The 95% CI extracted from model:
+```{r}
+CI <- confint(m, level = 1 - alpha)
+CI[2,1:2]
+```
+
+p value calculated by hand:
+```{r}
+calc.statistic <- (beta1 - 0)/SEbeta1
+(p <- 2 * pt(calc.statistic, df = nrow(d6) - 2, lower.tail = FALSE))
+```
+p value was already extracted earlier.
+
+Step 8
+We need to permute slope coefficient estimates. The sentence from Module 18 explain what we need to permute: "essentially, each permutation involves randomly shuffling values of the response variable under the null hypothesis that they are independent of the explanatory variable."
+```{r}
+alpha <- 0.05
+confidence_level <- 1 - alpha
+p_lower <- alpha/2
+p_upper <- 1 - (alpha/2)
+degrees_of_freedom <- nrow(d6) - 2
+critical_value <- qt(p_upper, df = degrees_of_freedom)
+
+original.slope <- m %>%
+tidy(conf.int = TRUE, conf.level = confidence_level) %>%
+mutate(lower = estimate - std.error * critical_value, upper = estimate + std.error *
+    critical_value) %>%
+    filter(term == "Group_size")
+original.slope 
+```
+
+```{r}
+permuted.slope <- d6 %>%
+  specify(ECV ~ Group_size) %>%
+  hypothesize(null = "independence") %>%
+  generate(reps = 1000, type = "permute") %>%
+  calculate(stat = "slope")
+
+head(permuted.slope)
+```
+
+```{r}
+permuted.slope.summary <- permuted.slope %>%
+  summarize(
+    estimate = mean(stat)
+  )
+
+permuted.slope.summary
+```
+
+```{r}
+(p.value <- permuted.slope %>%
+  get_p_value(obs_stat = original.slope$estimate, direction="two_sided"))
+```
+The p value is 0.
+
+Step 8
+```{r}
+boot.slope <- d6 %>%
+  specify(ECV ~ Group_size) %>%
+  generate(reps = 1000, type = "bootstrap") %>%
+  calculate(stat = "slope")
+
+head(boot.slope)
+```
+```{r}
+boot.slope.summary <- boot.slope %>%
+  summarize(
+    estimate = mean(stat)
+  )
+
+boot.slope.summary
+```
+
+```{r}
+(CI.percentile <- get_ci(boot.slope, level = 1 - alpha, type = "percentile"))
+(CI.theory <- get_ci(boot.slope, level = 1 - alpha, type = "se", point_estimate = pull(boot.slope.summary,
+    estimate)))
+```
+
+These CIs suggest that beta1 (slope coefficient) is different from zero.
